@@ -1124,8 +1124,31 @@ fi
       #prepare_dhcp_options
 	  prepare_dhcp_options_wan_dns	
    fi
+
+   if [ "$FIRMWARE_TYPE" != "OFW" ]; then
+      DSLITE_ENABLE=$(syscfg get dslite_enable)
+
+      # DS-Lite: add bridge IPs as DNS
+      if [ "$DSLITE_ENABLE" = "1" ]; then
+         LAN_IP=$(syscfg get lan_ipaddr)
+         [ -n "$LAN_IP" ] && echo "option:dns-server,$LAN_IP" >> "$DHCP_OPTIONS_FILE"
+
+         POOLS=$(sysevent get dhcp_server_current_pools)
+         for POOL in $POOLS; do
+            ENABLED=$(sysevent get "dhcp_server_${POOL}_enabled")
+            [ "$ENABLED" != "TRUE" ] && continue
+
+            IPV4INST=$(sysevent get "dhcp_server_${POOL}_ipv4inst")
+            [ -z "$IPV4INST" ] && continue
+
+            BR_IP=$(sysevent get "ipv4_${IPV4INST}-ipv4addr")
+            [ -n "$BR_IP" ] && \
+               echo "tag:${POOL},option:dns-server,$BR_IP" >> "$DHCP_OPTIONS_FILE"
+         done
+      fi
+   fi
    
-   if [ "$BOX_TYPE" != "HUB4" ] && [ "$BOX_TYPE" != "SR300" ] && [ "$BOX_TYPE" != "SE501" ] && [ "$BOX_TYPE" != "SR213" ] && [ "$SelfHealSupport" != "true" ]; then
+   if [[ "$FIRMWARE_TYPE" != "OFW" && "$DSLITE_ENABLE" != "1" ]] && [ "$BOX_TYPE" != "HUB4" ] && [ "$BOX_TYPE" != "SR300" ] && [ "$BOX_TYPE" != "SE501" ] && [ "$BOX_TYPE" != "SR213" ] && [ "$SelfHealSupport" != "true" ]; then
       nameserver=`grep "nameserver" $RESOLV_CONF | awk '{print $2}'|grep -v ":"|tr '\n' ','| sed -e 's/,$//'`
       if [ -n "$nameserver" ]; then
          echo "option:dns-server,$nameserver" >> $DHCP_OPTIONS_FILE

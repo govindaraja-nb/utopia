@@ -1606,8 +1606,66 @@ int prepare_dhcp_conf (char *input)
 		prepare_dhcp_options_wan_dns();
 	}
   
-#if defined (_XB6_PRODUCT_REQ_) || defined (_CBR_PRODUCT_REQ_)
+#if !defined _LG_OFW_
+    char dslite_enable[8] = {0};
+    if (syscfg_get(NULL, "dslite_enable", dslite_enable, sizeof(dslite_enable)) == 0 &&
+        !strcmp(dslite_enable, "1"))
     {
+        FILE *fp = fopen(DHCP_OPTIONS_FILE, "a");
+        if (fp)
+        {
+            char lan_ip[32] = {0};
+
+            if (!syscfg_get(NULL, "lan_ipaddr", lan_ip, sizeof(lan_ip)) &&
+                lan_ip[0] != '\0')
+            {
+                fprintf(fp, "option:dns-server,%s\n", lan_ip);
+            }
+
+            char pools[128] = {0};
+            sysevent_get(g_iSyseventfd, g_tSysevent_token, "dhcp_server_current_pools", pools, sizeof(pools));
+
+            char *saveptr = NULL;
+            char *pool = strtok_r(pools, " ", &saveptr);
+
+            while (pool)
+            {
+                char enabled_val[16] = {0};
+                char enabled_key[64] = {0};
+                char ipv4inst_key[64] = {0}; 
+                char ipv4inst_val[32] = {0};
+                char ip_event[64] = {0};
+                char br_ip[32] = {0};
+
+                snprintf(enabled_key, sizeof(enabled_key), "dhcp_server_%s_enabled", pool);
+                sysevent_get(g_iSyseventfd, g_tSysevent_token, enabled_key, enabled_val, sizeof(enabled_val));
+
+                if (!strcmp(enabled_val, "TRUE"))
+                {
+                    snprintf(ipv4inst_key, sizeof(ipv4inst_key), "dhcp_server_%s_ipv4inst", pool);
+                    sysevent_get(g_iSyseventfd, g_tSysevent_token, ipv4inst_key, ipv4inst_val, sizeof(ipv4inst_val));
+
+                    if (ipv4inst_val[0])
+                    {
+                        snprintf(ip_event, sizeof(ip_event), "ipv4_%s-ipv4addr", ipv4inst_val);
+                        sysevent_get(g_iSyseventfd, g_tSysevent_token, ip_event, br_ip, sizeof(br_ip));
+
+                        if (br_ip[0])
+                        {
+                            fprintf(fp, "tag:%s,option:dns-server,%s\n", pool, br_ip);
+                        }
+                    }
+                }
+                pool = strtok_r(NULL, " ", &saveptr);
+            }
+
+            fclose(fp);
+        }
+    }
+    else
+#endif /* _LG_OFW_ */
+    {
+#if defined (_XB6_PRODUCT_REQ_) || defined (_CBR_PRODUCT_REQ_)
         struct in_addr ipv4Addr;
         int    ret = -1;
         int    resComp = -1;
@@ -1656,8 +1714,8 @@ int prepare_dhcp_conf (char *input)
         {
             fprintf(g_fArmConsoleLog, "DHCP_SERVER : Error in opening %s\n",RESOLV_CONF );
         }
-    }
 #endif
+    }
   
    	sysevent_get(g_iSyseventfd, g_tSysevent_token, "lan-status", l_cLan_Status, sizeof(l_cLan_Status));
 	if (!strncmp(l_cLan_Status, "started", 7)) 
